@@ -1,0 +1,41 @@
+# --- Archivos sensibles ---
+# Ignora todos los archivos de variables de entorno
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.env.*
+
+# Pero NO ignores los archivos de ejemplo
+!.env.example
+
+# --- Dependencias ---
+# Ignora node_modules en CUALQUIER carpeta
+node_modules/
+
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Frontend (Vite / Create React App) ---
+# Carpeta de build
+dist/
+build/
+.output/
+# Archivos de cache
+.eslintcache
+.vite-cache/
+
+# --- Sistema Operativo / IDE ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo

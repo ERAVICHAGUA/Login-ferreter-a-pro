@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 font-sans;
+}
+
+/* Componentes reutilizables */
+.card {
+  @apply bg-slate-900/70 border border-slate-800 rounded-xl p-4;
+}
+
+.btn {
+  @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 active:scale-[.98] transition;
+}
+
+.badge {
+  @apply text-xs px-2 py-1 rounded-full border;
+}
+
+.badge-green {
+  @apply border-emerald-700 bg-emerald-900/30 text-emerald-300;
+}
+
+.badge-amber {
+  @apply border-amber-700 bg-amber-900/30 text-amber-300;
+}
+
+.badge-slate {
+  @apply border-slate-700 bg-slate-800 text-slate-300;
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.02);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
+
+
