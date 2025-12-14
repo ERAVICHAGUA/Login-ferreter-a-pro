@@ -16,12 +16,28 @@ export const login = async (req, res) => {
     }
 
     // ✅ Verificar CAPTCHA con Google
-    const verify = await axios.post(
-      `https://www.google.com/recaptcha/api/siteverify?secret=${process.env.RECAPTCHA_SECRET}&response=${captcha}`
-    );
-    if (!verify.data.success) {
-      return res.status(400).json({ success: false, msg: "Captcha inválido" });
-    }
+const params = new URLSearchParams();
+params.append("secret", process.env.RECAPTCHA_SECRET);
+params.append("response", captcha);
+
+const verify = await axios.post(
+  "https://www.google.com/recaptcha/api/siteverify",
+  params,
+  {
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+  }
+);
+
+if (!verify.data.success) {
+  console.error("❌ CAPTCHA FALLÓ:", verify.data);
+  return res.status(400).json({
+    success: false,
+    msg: "Captcha inválido",
+  });
+}
+
 
     const ahora = Date.now();
     const registro = intentosFallidos[email];
