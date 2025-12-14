@@ -2,6 +2,7 @@ import db from "../config/db.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import axios from "axios";
+import { validationResult } from "express-validator";
 
 // 🧠 Control temporal de intentos por usuario (en memoria)
 const intentosFallidos = {}; // { email: { count: 0, bloqueadoHasta: timestamp } }
@@ -9,11 +10,17 @@ const BLOQUEO_MS = 5 * 60 * 1000; // 5 minutos
 
 export const login = async (req, res) => {
   try {
-    const { email, password, captcha } = req.body;
-
-    if (!email || !password || !captcha) {
-      return res.status(400).json({ success: false, msg: "Faltan datos requeridos" });
+ /* =========================================================
+       ✅ VALIDAR INPUTS (OWASP)
+    ========================================================= */
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        msg: errors.array()[0].msg,
+      });
     }
+    const { email, password, captcha } = req.body;
 
     // ✅ Verificar CAPTCHA con Google
 const params = new URLSearchParams();
