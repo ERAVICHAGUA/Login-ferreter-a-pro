@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import LogoutButton from "../components/LogoutButton";
@@ -7,6 +7,14 @@ import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import logo from "/icons/logo_yuraqwasi.png";
+import {
+  MapPin,
+  Clock,
+  LogIn,
+  LogOut,
+  FileSpreadsheet,
+  FileText,
+} from "lucide-react";
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -16,7 +24,7 @@ const Dashboard = () => {
   const [historial, setHistorial] = useState([]);
   const [cargando, setCargando] = useState(false);
 
-  // === OBTENER UBICACIÓN ===
+  /* ================= GPS ================= */
   const obtenerUbicacion = () => {
     if (!navigator.geolocation) {
       alert("Tu navegador no soporta geolocalización");
@@ -36,7 +44,6 @@ const Dashboard = () => {
     );
   };
 
-  // === CONVERTIR COORDENADAS A DIRECCIÓN ===
   const obtenerDireccion = async ({ latitude, longitude }) => {
     try {
       const res = await fetch(
@@ -45,52 +52,126 @@ const Dashboard = () => {
       const data = await res.json();
       setDireccion(data.display_name || "Dirección no disponible");
     } catch (err) {
-      console.error("Error obteniendo dirección:", err);
+      console.error(err);
     }
   };
 
-  // === MARCAR ENTRADA / SALIDA ===
+  /* ================= ASISTENCIA ================= */
   const marcarAsistencia = async (tipo) => {
-    if (!gpsActivo) return alert("Activa el GPS antes de marcar asistencia");
+    if (!gpsActivo) return alert("Activa el GPS antes de marcar");
 
     try {
       setCargando(true);
       await axios.post(
         "http://localhost:4000/api/asistencias",
         { tipo, ubicacion, direccion },
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        }
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
       );
-      alert("Asistencia registrada correctamente ✅");
-      obtenerHistorial();
+      await obtenerHistorial();
     } catch {
-      alert("No se pudo registrar la asistencia ❌");
+      alert("Error al registrar asistencia");
     } finally {
       setCargando(false);
     }
   };
 
-  // === OBTENER HISTORIAL DESDE BACKEND ===
   const obtenerHistorial = async () => {
     try {
       const res = await axios.get("http://localhost:4000/api/asistencias", {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
       setHistorial(res.data);
-    } catch (error) {
-      console.error("Error al obtener historial:", error);
+    } catch (err) {
+      console.error(err);
     }
   };
 
-  // === CALCULAR DURACIÓN ===
+  /* ================= LÓGICA CORRECTA ================= */
+
+  // Ordenar por fecha ASC
+  const historialOrdenado = useMemo(() => {
+    return [...historial].sort(
+      (a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora)
+    );
+  }, [historial]);
+
+  // Emparejar entrada -> salida correctamente
+  const pares = useMemo(() => {
+    const resultado = [];
+    let entradaPendiente = null;
+
+    historialOrdenado.forEach((r) => {
+      if (r.tipo === "entrada") {
+        entradaPendiente = r;
+      } else if (
+        r.tipo === "salida" &&
+        entradaPendiente &&
+        new Date(r.fecha_hora) > new Date(entradaPendiente.fecha_hora)
+      ) {
+        resultado.push({
+          entrada: entradaPendiente.fecha_hora,
+          salida: r.fecha_hora,
+          direccionEntrada: entradaPendiente.direccion,
+          direccionSalida: r.direccion,
+        });
+        entradaPendiente = null;
+      }
+    });
+
+    if (entradaPendiente) {
+      resultado.push({
+        entrada: entradaPendiente.fecha_hora,
+        salida: null,
+        direccionEntrada: entradaPendiente.direccion,
+        direccionSalida: null,
+      });
+    }
+
+    return resultado;
+  }, [historialOrdenado]);
+
   const calcularDuracion = (entrada, salida) => {
-    if (!entrada || !salida) return "Pendiente ⏳";
-    const diffMs = new Date(salida) - new Date(entrada);
-    if (diffMs < 0) return "—";
-    const horas = Math.floor(diffMs / (1000 * 60 * 60));
-    const minutos = Math.floor((diffMs / (1000 * 60)) % 60);
-    return `${horas}h ${minutos}m`;
+    if (!entrada || !salida) return "—";
+    const diff = new Date(salida) - new Date(entrada);
+    if (diff <= 0) return "—";
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    return `${h}h ${m}m`;
+  };
+
+  /* ================= EXPORTACIONES ================= */
+  const exportarExcel = () => {
+    const data = pares.map((p) => ({
+      Entrada: new Date(p.entrada).toLocaleString("es-PE"),
+      Salida: p.salida
+        ? new Date(p.salida).toLocaleString("es-PE")
+        : "—",
+      Duración: calcularDuracion(p.entrada, p.salida),
+      Dirección: p.direccionEntrada || "—",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Asistencias");
+    const buffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    saveAs(new Blob([buffer]), "asistencias.xlsx");
+  };
+
+  const exportarPDF = () => {
+    const doc = new jsPDF();
+    doc.text("Reporte de Asistencias - YURAQ WASI", 14, 15);
+
+    autoTable(doc, {
+      startY: 22,
+      head: [["Entrada", "Salida", "Duración"]],
+      body: pares.map((p) => [
+        new Date(p.entrada).toLocaleTimeString("es-PE"),
+        p.salida ? new Date(p.salida).toLocaleTimeString("es-PE") : "—",
+        calcularDuracion(p.entrada, p.salida),
+      ]),
+    });
+
+    doc.save("asistencias.pdf");
   };
 
   useEffect(() => {
@@ -98,193 +179,109 @@ const Dashboard = () => {
     obtenerHistorial();
   }, []);
 
-  // === AGRUPAR POR DÍA ===
-  const historialAgrupado = historial.reduce((acc, item) => {
-    const fecha = new Date(item.fecha_hora).toLocaleDateString("es-PE", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-    if (!acc[fecha]) acc[fecha] = [];
-    acc[fecha].push(item);
-    return acc;
-  }, {});
-
-  // === EXPORTAR EXCEL ===
-  const exportarExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(historial);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Asistencias");
-    const buffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-    const archivo = new Blob([buffer], { type: "application/octet-stream" });
-    saveAs(archivo, "asistencias.xlsx");
-  };
-
-  // === EXPORTAR PDF ===
-  const exportarPDF = () => {
-    const doc = new jsPDF();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text("YURAQ WASI - Reporte de Asistencias", 14, 15);
-    doc.setFontSize(11);
-    doc.setTextColor(100);
-    doc.text(`Empleado: ${user?.nombre || "Usuario"}`, 14, 22);
-    doc.text(`Generado: ${new Date().toLocaleString("es-PE")}`, 14, 28);
-
-    const columnas = ["Fecha", "Entrada", "Salida", "Duración", "Dirección"];
-    const filas = [];
-
-    Object.entries(historialAgrupado).forEach(([fecha, registros]) => {
-      const entradas = registros.filter((r) => r.tipo === "entrada");
-      const salidas = registros.filter((r) => r.tipo === "salida");
-
-      entradas.forEach((ent, i) => {
-        const sal = salidas[i];
-        filas.push([
-          fecha,
-          new Date(ent.fecha_hora).toLocaleTimeString("es-PE"),
-          sal ? new Date(sal.fecha_hora).toLocaleTimeString("es-PE") : "—",
-          calcularDuracion(ent.fecha_hora, sal?.fecha_hora),
-          ent.direccion || "—",
-        ]);
-      });
-    });
-
-    autoTable(doc, {
-      head: [columnas],
-      body: filas,
-      startY: 35,
-      theme: "striped",
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [99, 102, 241] },
-    });
-
-    doc.save("asistencias.pdf");
-  };
-
+  /* ================= UI ================= */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-blue-900 to-purple-900 text-white p-6">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <LogoutButton />
 
       <div className="max-w-6xl mx-auto text-center mb-10">
-        <img src={logo} alt="YURAQ WASI Logo" className="w-24 mx-auto mb-3" />
+        <img src={logo} className="w-20 mx-auto mb-3" />
         <h1 className="text-3xl font-bold text-indigo-300">
-          Panel del Empleado - YURAQ WASI
+          Panel del Empleado
         </h1>
-        <p className="text-gray-300 mt-2">
-          Bienvenido,{" "}
-          <span className="text-indigo-200 font-semibold">{user?.nombre}</span>
+        <p className="text-slate-300">
+          Bienvenido, <span className="font-semibold">{user?.nombre}</span>
         </p>
       </div>
 
-      {/* GPS */}
-      <div className="bg-white/10 p-5 rounded-xl shadow-lg mb-6 flex flex-col md:flex-row items-center justify-between">
-        <span
-          className={`px-4 py-2 rounded-lg font-semibold ${
-            gpsActivo ? "bg-green-700" : "bg-red-700"
-          }`}
-        >
-          {gpsActivo ? `📍 ${direccion}` : "📍 GPS inactivo"}
-        </span>
-        {!gpsActivo && (
-          <button
-            onClick={obtenerUbicacion}
-            className="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 mt-3 md:mt-0 rounded-lg font-semibold"
-          >
-            Activar GPS
-          </button>
-        )}
-      </div>
+      <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="card flex items-center gap-3">
+          <MapPin className="text-emerald-400" />
+          <span className="text-sm">
+            {gpsActivo ? direccion : "GPS inactivo"}
+          </span>
+        </div>
 
-      {/* BOTONES */}
-      <div className="flex flex-wrap gap-3 justify-center mb-8">
         <button
           onClick={() => marcarAsistencia("entrada")}
-          className="bg-green-600 hover:bg-green-700 px-5 py-3 rounded-lg font-semibold shadow-md"
+          className="btn bg-emerald-600 text-white"
         >
-          Marcar Entrada
+          <LogIn size={18} /> Marcar Entrada
         </button>
+
         <button
           onClick={() => marcarAsistencia("salida")}
-          className="bg-yellow-500 hover:bg-yellow-600 px-5 py-3 rounded-lg font-semibold shadow-md"
+          className="btn bg-amber-500 text-white"
         >
-          Marcar Salida
+          <LogOut size={18} /> Marcar Salida
         </button>
+      </div>
+
+      <div className="max-w-6xl mx-auto flex gap-3 mb-8">
         <button
           onClick={exportarExcel}
-          className="bg-emerald-600 hover:bg-emerald-700 px-5 py-3 rounded-lg font-semibold shadow-md"
+          className="btn bg-indigo-600 text-white"
         >
-          📘 Exportar Excel
+          <FileSpreadsheet size={18} /> Excel
         </button>
         <button
           onClick={exportarPDF}
-          className="bg-rose-600 hover:bg-rose-700 px-5 py-3 rounded-lg font-semibold shadow-md"
+          className="btn bg-rose-600 text-white"
         >
-          📄 Exportar PDF
+          <FileText size={18} /> PDF
         </button>
       </div>
 
-      {/* HISTORIAL */}
-      <div className="bg-white/10 rounded-xl shadow-lg p-6 border border-gray-700">
-        <h3 className="text-lg font-semibold mb-4 text-indigo-300">
-          📖 Historial de Marcaciones
-        </h3>
+      <div className="max-w-6xl mx-auto card">
+        <h2 className="text-lg font-semibold mb-4 flex gap-2 items-center">
+          <Clock /> Historial
+        </h2>
 
-        {Object.entries(historialAgrupado).map(([fecha, registros]) => {
-          const entradas = registros.filter((r) => r.tipo === "entrada");
-          const salidas = registros.filter((r) => r.tipo === "salida");
+        <table className="w-full text-sm">
+          <thead className="border-b border-slate-700 text-slate-400">
+            <tr>
+              <th className="py-3 text-left">Entrada</th>
+              <th className="py-3 text-left">Salida</th>
+              <th className="py-3 text-left">Duración</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pares.map((p, i) => (
+              <tr
+                key={i}
+                className="border-b border-slate-800 hover:bg-slate-800/50"
+              >
+                <td className="py-4">
+                  <div className="font-medium">
+                    {new Date(p.entrada).toLocaleTimeString("es-PE")}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">
+                    📍 {p.direccionEntrada || "—"}
+                  </div>
+                </td>
 
-          return (
-            <div key={fecha} className="mb-6">
-              <h4 className="text-indigo-400 font-semibold border-b border-indigo-600 pb-1 mb-3 text-lg">
-                📅 {fecha.charAt(0).toUpperCase() + fecha.slice(1)}
-              </h4>
-              <table className="w-full text-sm text-left text-gray-300 rounded-lg overflow-hidden">
-                <thead className="text-xs uppercase bg-gray-800 text-gray-400">
-                  <tr>
-                    <th className="px-4 py-2">Hora Entrada / Dirección</th>
-                    <th className="px-4 py-2">Hora Salida / Dirección</th>
-                    <th className="px-4 py-2">Duración</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entradas.map((ent, i) => {
-                    const sal = salidas[i];
-                    const dur = calcularDuracion(ent.fecha_hora, sal?.fecha_hora);
+                <td className="py-4">
+                  {p.salida ? (
+                    <>
+                      <div className="font-medium">
+                        {new Date(p.salida).toLocaleTimeString("es-PE")}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        📍 {p.direccionSalida || "—"}
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-slate-500">—</span>
+                  )}
+                </td>
 
-                    return (
-                      <tr
-                        key={i}
-                        className="border-b border-gray-700 hover:bg-gray-800 transition"
-                      >
-                        <td className="px-4 py-2">
-                          {new Date(ent.fecha_hora).toLocaleTimeString("es-PE")}
-                          <br />
-                          <span className="text-xs text-gray-400">
-                            📍 {ent.direccion || "Sin dirección"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2">
-                          {sal
-                            ? new Date(sal.fecha_hora).toLocaleTimeString("es-PE")
-                            : "—"}
-                          <br />
-                          <span className="text-xs text-gray-400">
-                            📍 {sal?.direccion || "Sin dirección"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 font-semibold text-indigo-200">
-                          {dur}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          );
-        })}
+                <td className="py-4 font-semibold text-indigo-300">
+                  {calcularDuracion(p.entrada, p.salida)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

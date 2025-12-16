@@ -20,7 +20,7 @@ export const login = async (req, res) => {
         msg: errors.array()[0].msg,
       });
     }
-    const { email, password, captcha } = req.body;
+    const { email, password, captcha, rol } = req.body;
 
     // ✅ Verificar CAPTCHA con Google
 const params = new URLSearchParams();
@@ -36,6 +36,7 @@ const verify = await axios.post(
     },
   }
 );
+console.log("🔍 Google reCAPTCHA verify response:", verify.data);
 
 if (!verify.data.success) {
   console.error("❌ CAPTCHA FALLÓ:", verify.data);
@@ -85,6 +86,15 @@ if (!verify.data.success) {
           restantes > 0
             ? `❌ Contraseña incorrecta. Te quedan ${restantes} intento(s).`
             : "🚫 Cuenta bloqueada por 5 minutos.",
+      });
+    }
+    /* =========================================================
+   ✅ VALIDAR ROL SELECCIONADO (ADMIN / EMPLEADO)
+        ========================================================= */
+        if (rol && user.rol !== rol) {
+            return res.status(403).json({
+        success: false,
+        msg: "Rol incorrecto para este tipo de acceso.",
       });
     }
 
